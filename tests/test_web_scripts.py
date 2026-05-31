@@ -735,6 +735,90 @@ def test_start_web_skips_frontend_install_when_dist_is_current_without_node_modu
     assert "fake-uvicorn" in result.stdout
 
 
+def test_start_web_installs_python_web_deps_without_editable_project(tmp_path: Path):
+    project_dir = tmp_path / "project"
+    scripts_dir = project_dir / "scripts"
+    frontend_dir = project_dir / "web" / "frontend"
+    dist_dir = frontend_dir / "dist"
+    state_dir = tmp_path / "state"
+    fake_bin = tmp_path / "bin"
+    pip_args_log = tmp_path / "pip-args.txt"
+
+    scripts_dir.mkdir(parents=True)
+    dist_dir.mkdir(parents=True)
+    state_dir.mkdir()
+    fake_bin.mkdir()
+
+    shutil.copy2(REPO_ROOT / "scripts" / "start-web.sh", scripts_dir / "start-web.sh")
+    shutil.copy2(REPO_ROOT / "scripts" / "web-common.sh", scripts_dir / "web-common.sh")
+
+    (project_dir / "pyproject.toml").write_text("[build-system]\nrequires = []\n", encoding="utf-8")
+    (frontend_dir / "index.html").write_text("frontend", encoding="utf-8")
+    (frontend_dir / "package.json").write_text("{}", encoding="utf-8")
+    (frontend_dir / "package-lock.json").write_text("{}", encoding="utf-8")
+    (dist_dir / "index.html").write_text("built", encoding="utf-8")
+
+    old = time.time() - 60
+    new = time.time()
+    for path in [
+        frontend_dir / "index.html",
+        frontend_dir / "package.json",
+        frontend_dir / "package-lock.json",
+    ]:
+        os.utime(path, (old, old))
+    os.utime(dist_dir / "index.html", (new, new))
+
+    fake_python = fake_bin / "python3"
+    fake_python.write_text(
+        "\n".join(
+            [
+                "#!/bin/sh",
+                'if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"pip\" ]; then',
+                "  shift 2",
+                '  printf "%s\\n" "$@" > "$PIP_ARGS_LOG"',
+                "  exit 0",
+                "fi",
+                'if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"uvicorn\" ]; then',
+                "  echo fake-uvicorn",
+                "  exit 0",
+                "fi",
+                f'exec {shlex.quote(sys.executable)} \"$@\"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    fake_python.chmod(fake_python.stat().st_mode | stat.S_IXUSR)
+
+    result = subprocess.run(
+        ["bash", str(scripts_dir / "start-web.sh")],
+        cwd=project_dir,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:/usr/bin:/bin",
+            "WEB_STATE_DIR": str(state_dir),
+            "WEB_FORCE_PYTHON_DEPS_INSTALL": "1",
+            "PIP_ARGS_LOG": str(pip_args_log),
+            "HOST": "127.0.0.1",
+            "PORT": "0",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    pip_args = pip_args_log.read_text(encoding="utf-8").splitlines()
+    assert "-e" not in pip_args
+    assert ".[web]" not in pip_args
+    assert "install" in pip_args
+    assert "-q" in pip_args
+    assert "fastapi>=0.100.0" in pip_args
+    assert "uvicorn>=0.23.0" in pip_args
+    assert "httpx>=0.24.0" in pip_args
+    assert "fake-uvicorn" in result.stdout
+
+
 @pytest.mark.skipif(
     not vite_proxy_test_ready(),
     reason="node and frontend deps are required for vite config test",

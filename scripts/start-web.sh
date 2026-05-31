@@ -32,7 +32,7 @@ if web_python_deps_need_install "$PYTHON_BIN"; then
 
     echo "📦 安装 Python Web 依赖..."
     cd "$PROJECT_DIR"
-    "$PYTHON_BIN" -m pip install -e ".[web]" -q
+    web_install_python_deps "$PYTHON_BIN"
     web_mark_python_deps_installed
 else
     echo "📦 Python Web 依赖已就绪，跳过安装"

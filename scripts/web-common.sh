@@ -102,6 +102,17 @@ web_ensure_pip_available() {
     return 1
 }
 
+web_install_python_deps() {
+    local python_bin="$1"
+
+    "$python_bin" -m pip install -q \
+        "fastapi>=0.100.0" \
+        "uvicorn>=0.23.0" \
+        "pydantic>=2.0.0" \
+        "websockets>=11.0" \
+        "httpx>=0.24.0"
+}
+
 web_state_dir() {
     local git_dir
 
